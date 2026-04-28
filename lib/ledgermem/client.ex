@@ -8,11 +8,16 @@ defmodule LedgerMem.Client do
 
   use GenServer
 
+  require Bitwise
+
   alias LedgerMem.Error
 
   @default_base_url "https://api.proofly.dev"
   @version "0.1.0"
   @name __MODULE__
+  @default_max_retries 3
+  @retry_base_delay_ms 200
+  @retry_max_delay_ms 5_000
 
   # ---- Lifecycle ----
 
@@ -23,34 +28,39 @@ defmodule LedgerMem.Client do
 
   @impl true
   def init(opts) do
-    api_key =
-      Keyword.get(opts, :api_key) ||
-        System.get_env("LEDGERMEM_API_KEY") ||
-        raise ArgumentError, "api_key is required"
+    with {:ok, api_key} <- fetch_required(opts, :api_key, "LEDGERMEM_API_KEY"),
+         {:ok, workspace_id} <- fetch_required(opts, :workspace_id, "LEDGERMEM_WORKSPACE_ID") do
+      base_url =
+        Keyword.get(opts, :base_url) ||
+          System.get_env("LEDGERMEM_API_URL") ||
+          @default_base_url
 
-    workspace_id =
-      Keyword.get(opts, :workspace_id) ||
-        System.get_env("LEDGERMEM_WORKSPACE_ID") ||
-        raise ArgumentError, "workspace_id is required"
+      req =
+        Keyword.get(opts, :req) ||
+          Req.new(
+            base_url: String.trim_trailing(base_url, "/"),
+            headers: [
+              {"authorization", "Bearer " <> api_key},
+              {"x-workspace-id", workspace_id},
+              {"user-agent", "ledgermem-elixir/#{@version}"}
+            ],
+            receive_timeout: 30_000
+          )
 
-    base_url =
-      Keyword.get(opts, :base_url) ||
-        System.get_env("LEDGERMEM_API_URL") ||
-        @default_base_url
+      max_retries = Keyword.get(opts, :max_retries, @default_max_retries)
+      {:ok, %{req: req, max_retries: max(0, max_retries)}}
+    end
+  end
 
-    req =
-      Keyword.get(opts, :req) ||
-        Req.new(
-          base_url: String.trim_trailing(base_url, "/"),
-          headers: [
-            {"authorization", "Bearer " <> api_key},
-            {"x-workspace-id", workspace_id},
-            {"user-agent", "ledgermem-elixir/#{@version}"}
-          ],
-          receive_timeout: 30_000
-        )
-
-    {:ok, %{req: req}}
+  # Returning {:stop, reason} from init/1 is the supervisor-friendly way to
+  # signal a misconfiguration without raising an ArgumentError that would
+  # crash the supervision tree on the way up.
+  defp fetch_required(opts, key, env) do
+    case Keyword.get(opts, key) || System.get_env(env) do
+      nil -> {:stop, {:missing_config, key}}
+      "" -> {:stop, {:missing_config, key}}
+      value -> {:ok, value}
+    end
   end
 
   # ---- Public API ----
@@ -103,18 +113,40 @@ defmodule LedgerMem.Client do
 
   defp request(caller_opts, method, path, req_opts) do
     name = Keyword.get(caller_opts, :name, @name)
-    %{req: req} = GenServer.call(name, :get_state)
+    %{req: req, max_retries: max_retries} = GenServer.call(name, :get_state)
+    do_request(req, method, path, req_opts, max_retries, 0)
+  end
 
+  defp do_request(req, method, path, req_opts, max_retries, attempt) do
     case Req.request(req, [method: method, url: path] ++ req_opts) do
       {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
         {:ok, body || %{}}
+
+      {:ok, %Req.Response{status: status, body: body}} when status == 429 or status in 500..599 ->
+        if attempt < max_retries do
+          Process.sleep(retry_delay(attempt))
+          do_request(req, method, path, req_opts, max_retries, attempt + 1)
+        else
+          {:error, %Error{status: status, message: format(body)}}
+        end
 
       {:ok, %Req.Response{status: status, body: body}} ->
         {:error, %Error{status: status, message: format(body)}}
 
       {:error, exception} ->
-        {:error, %Error{status: 0, message: Exception.message(exception)}}
+        if attempt < max_retries do
+          Process.sleep(retry_delay(attempt))
+          do_request(req, method, path, req_opts, max_retries, attempt + 1)
+        else
+          {:error, %Error{status: 0, message: Exception.message(exception)}}
+        end
     end
+  end
+
+  # Exponential backoff with full jitter, capped at @retry_max_delay_ms.
+  defp retry_delay(attempt) do
+    capped = min(@retry_base_delay_ms * Bitwise.bsl(1, min(attempt, 20)), @retry_max_delay_ms)
+    :rand.uniform(capped + 1) - 1
   end
 
   defp format(body) when is_binary(body), do: body
