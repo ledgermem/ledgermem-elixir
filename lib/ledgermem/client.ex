@@ -89,11 +89,11 @@ defmodule LedgerMem.Client do
       |> maybe_put("content", Keyword.get(opts, :content))
       |> maybe_put("metadata", Keyword.get(opts, :metadata))
 
-    request(opts, :patch, "/v1/memories/" <> URI.encode(id), json: body)
+    request(opts, :patch, "/v1/memories/" <> encode_path_segment(id), json: body)
   end
 
   def delete(id, opts \\ []) do
-    case request(opts, :delete, "/v1/memories/" <> URI.encode(id), []) do
+    case request(opts, :delete, "/v1/memories/" <> encode_path_segment(id), []) do
       {:ok, _} -> :ok
       {:error, _} = err -> err
     end
@@ -122,9 +122,14 @@ defmodule LedgerMem.Client do
       {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
         {:ok, body || %{}}
 
-      {:ok, %Req.Response{status: status, body: body}} when status == 429 or status in 500..599 ->
+      # 501 Not Implemented is permanent — fall through to the error path.
+      {:ok, %Req.Response{status: 501, body: body}} ->
+        {:error, %Error{status: 501, message: format(body)}}
+
+      {:ok, %Req.Response{status: status, body: body, headers: headers}}
+      when status == 429 or status in 500..599 ->
         if attempt < max_retries do
-          Process.sleep(retry_delay(attempt))
+          Process.sleep(retry_delay(attempt, headers))
           do_request(req, method, path, req_opts, max_retries, attempt + 1)
         else
           {:error, %Error{status: status, message: format(body)}}
@@ -134,8 +139,8 @@ defmodule LedgerMem.Client do
         {:error, %Error{status: status, message: format(body)}}
 
       {:error, exception} ->
-        if attempt < max_retries do
-          Process.sleep(retry_delay(attempt))
+        if attempt < max_retries and retryable_transport?(exception) do
+          Process.sleep(retry_delay(attempt, []))
           do_request(req, method, path, req_opts, max_retries, attempt + 1)
         else
           {:error, %Error{status: 0, message: Exception.message(exception)}}
@@ -143,10 +148,65 @@ defmodule LedgerMem.Client do
     end
   end
 
+  # Distinguish transient transport errors from permanent ones so we don't
+  # waste retries on misconfiguration (e.g. unknown host).
+  defp retryable_transport?(%Mint.TransportError{reason: reason}) do
+    reason in [:timeout, :closed, :econnrefused, :econnreset, :ehostunreach, :enetunreach]
+  end
+
+  defp retryable_transport?(_), do: true
+
   # Exponential backoff with full jitter, capped at @retry_max_delay_ms.
-  defp retry_delay(attempt) do
-    capped = min(@retry_base_delay_ms * Bitwise.bsl(1, min(attempt, 20)), @retry_max_delay_ms)
-    :rand.uniform(capped + 1) - 1
+  # Honours a Retry-After header when present.
+  defp retry_delay(attempt, headers) do
+    case retry_after_ms(headers) do
+      nil ->
+        capped = min(@retry_base_delay_ms * Bitwise.bsl(1, min(attempt, 20)), @retry_max_delay_ms)
+        :rand.uniform(capped + 1) - 1
+
+      hint ->
+        min(hint, @retry_max_delay_ms)
+    end
+  end
+
+  defp retry_after_ms(headers) do
+    headers
+    |> Enum.find_value(fn
+      {k, v} when is_binary(k) ->
+        if String.downcase(k) == "retry-after", do: v, else: nil
+
+      _ ->
+        nil
+    end)
+    |> case do
+      nil ->
+        nil
+
+      [v | _] when is_binary(v) ->
+        parse_retry_after(v)
+
+      v when is_binary(v) ->
+        parse_retry_after(v)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp parse_retry_after(raw) do
+    case Integer.parse(String.trim(raw)) do
+      {secs, ""} when secs >= 0 -> secs * 1000
+      _ -> nil
+    end
+  end
+
+  # Percent-encode a path segment per RFC 3986. Unlike URI.encode/1 this
+  # encodes "/" and other reserved characters so an id containing them
+  # cannot break out into additional path segments.
+  defp encode_path_segment(s) when is_binary(s) do
+    URI.encode(s, fn ch ->
+      ch in ?A..?Z or ch in ?a..?z or ch in ?0..?9 or ch in [?-, ?_, ?., ?~]
+    end)
   end
 
   defp format(body) when is_binary(body), do: body
