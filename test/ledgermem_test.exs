@@ -1,4 +1,4 @@
-defmodule LedgerMemTest do
+defmodule MnemoTest do
   use ExUnit.Case, async: true
 
   setup do
@@ -36,7 +36,7 @@ defmodule LedgerMemTest do
     req = Req.new(plug: plug, base_url: "https://api.test")
 
     {:ok, pid} =
-      LedgerMem.Client.start_link(
+      Mnemo.Client.start_link(
         api_key: "test-key",
         workspace_id: "ws_123",
         req: req,
@@ -49,7 +49,7 @@ defmodule LedgerMemTest do
   test "search sends bearer + workspace headers and returns hits" do
     # Force the request through our named test client by re-resolving state.
     # Use the underlying GenServer name explicitly.
-    {:ok, body} = LedgerMem.Client.search("hello", limit: 3, name: :test_client)
+    {:ok, body} = Mnemo.Client.search("hello", limit: 3, name: :test_client)
 
     assert %{"hits" => [%{"id" => "m1", "score" => 0.9}]} = body
 
@@ -61,13 +61,13 @@ defmodule LedgerMemTest do
   end
 
   test "create posts to /v1/memories" do
-    {:ok, body} = LedgerMem.Client.create("remember", name: :test_client)
+    {:ok, body} = Mnemo.Client.create("remember", name: :test_client)
     assert body["id"] == "m_42"
     assert_received {:req, "POST", "/v1/memories", _headers, _body}
   end
 
   test "delete returns error tuple on non-2xx" do
-    assert {:error, %LedgerMem.Error{status: 404}} =
-             LedgerMem.Client.delete("missing", name: :test_client)
+    assert {:error, %Mnemo.Error{status: 404}} =
+             Mnemo.Client.delete("missing", name: :test_client)
   end
 end

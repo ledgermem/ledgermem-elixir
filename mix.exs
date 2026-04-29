@@ -1,18 +1,18 @@
-defmodule LedgerMem.MixProject do
+defmodule Mnemo.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/ledgermem/ledgermem-elixir"
+  @source_url "https://github.com/getmnemo/getmnemo-elixir"
 
   def project do
     [
-      app: :ledgermem,
+      app: :getmnemo,
       version: @version,
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       package: package(),
-      description: "Official Elixir client for the LedgerMem memory API.",
+      description: "Official Elixir client for the Mnemo memory API.",
       source_url: @source_url
     ]
   end
@@ -32,7 +32,7 @@ defmodule LedgerMem.MixProject do
 
   defp package do
     [
-      maintainers: ["LedgerMem"],
+      maintainers: ["Mnemo"],
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url}
     ]

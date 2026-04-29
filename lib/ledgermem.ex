@@ -1,17 +1,17 @@
-defmodule LedgerMem do
+defmodule Mnemo do
   @moduledoc """
-  Public API for the LedgerMem Elixir client.
+  Public API for the Mnemo Elixir client.
 
   Start a singleton client and call the wrapper functions:
 
-      {:ok, _pid} = LedgerMem.start_link(api_key: "...", workspace_id: "...")
-      {:ok, hits} = LedgerMem.search("hello")
+      {:ok, _pid} = Mnemo.start_link(api_key: "...", workspace_id: "...")
+      {:ok, hits} = Mnemo.search("hello")
   """
 
-  alias LedgerMem.Client
+  alias Mnemo.Client
 
   @type opts :: keyword()
-  @type result :: {:ok, map()} | {:error, LedgerMem.Error.t()}
+  @type result :: {:ok, map()} | {:error, Mnemo.Error.t()}
 
   defdelegate start_link(opts), to: Client
   defdelegate child_spec(opts), to: Client
@@ -25,10 +25,10 @@ defmodule LedgerMem do
   @spec update(String.t(), opts) :: result
   def update(id, opts \\ []), do: Client.update(id, opts)
 
-  @spec delete(String.t()) :: :ok | {:error, LedgerMem.Error.t()}
+  @spec delete(String.t()) :: :ok | {:error, Mnemo.Error.t()}
   def delete(id), do: Client.delete(id)
 
-  @spec delete(String.t(), opts) :: :ok | {:error, LedgerMem.Error.t()}
+  @spec delete(String.t(), opts) :: :ok | {:error, Mnemo.Error.t()}
   def delete(id, opts), do: Client.delete(id, opts)
 
   @spec list(opts) :: result

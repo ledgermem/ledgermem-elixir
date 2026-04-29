@@ -1,4 +1,4 @@
-defmodule LedgerMem.Client do
+defmodule Mnemo.Client do
   @moduledoc """
   GenServer-backed singleton wrapping a `Req` HTTP client.
 
@@ -10,9 +10,9 @@ defmodule LedgerMem.Client do
 
   require Bitwise
 
-  alias LedgerMem.Error
+  alias Mnemo.Error
 
-  @default_base_url "https://api.proofly.dev"
+  @default_base_url "https://api.getmnemo.xyz"
   @version "0.1.0"
   @name __MODULE__
   @default_max_retries 3
@@ -28,11 +28,11 @@ defmodule LedgerMem.Client do
 
   @impl true
   def init(opts) do
-    with {:ok, api_key} <- fetch_required(opts, :api_key, "LEDGERMEM_API_KEY"),
-         {:ok, workspace_id} <- fetch_required(opts, :workspace_id, "LEDGERMEM_WORKSPACE_ID") do
+    with {:ok, api_key} <- fetch_required(opts, :api_key, "GETMNEMO_API_KEY"),
+         {:ok, workspace_id} <- fetch_required(opts, :workspace_id, "GETMNEMO_WORKSPACE_ID") do
       base_url =
         Keyword.get(opts, :base_url) ||
-          System.get_env("LEDGERMEM_API_URL") ||
+          System.get_env("GETMNEMO_API_URL") ||
           @default_base_url
 
       req =
@@ -42,7 +42,7 @@ defmodule LedgerMem.Client do
             headers: [
               {"authorization", "Bearer " <> api_key},
               {"x-workspace-id", workspace_id},
-              {"user-agent", "ledgermem-elixir/#{@version}"}
+              {"user-agent", "getmnemo-elixir/#{@version}"}
             ],
             receive_timeout: 30_000
           )

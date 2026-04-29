@@ -1,5 +1,5 @@
-defmodule LedgerMem.Error do
-  @moduledoc "Error returned from LedgerMem API calls."
+defmodule Mnemo.Error do
+  @moduledoc "Error returned from Mnemo API calls."
 
   @type t :: %__MODULE__{status: integer(), message: String.t()}
 
@@ -7,5 +7,5 @@ defmodule LedgerMem.Error do
 
   @impl true
   def message(%__MODULE__{status: status, message: msg}),
-    do: "LedgerMem API error #{status}: #{msg}"
+    do: "Mnemo API error #{status}: #{msg}"
 end
